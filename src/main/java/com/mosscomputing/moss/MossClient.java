@@ -43,7 +43,7 @@ public class MossClient {
     public static final String SPEC = "moss-0001";
     public static final int VERSION = 1;
     public static final String ALGORITHM = "ML-DSA-44";
-    public static final String DEFAULT_BASE_URL = "https://moss-api-837703369688.us-central1.run.app";
+    public static final String DEFAULT_BASE_URL = "https://api.mosscomputing.com";
     
     private final String apiKey;
     private final String baseUrl;
