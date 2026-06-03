@@ -54,6 +54,13 @@
             <version>${jackson.version}</version>
         </dependency>
 
+        <!-- ML-DSA-44 (FIPS 204) post-quantum signatures via BouncyCastle -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+            <version>1.84</version>
+        </dependency>
+
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

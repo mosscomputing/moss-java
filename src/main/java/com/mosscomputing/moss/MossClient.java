@@ -10,7 +10,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -50,6 +49,7 @@ public class MossClient {
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final AtomicLong sequence;
+    private MossKeyPair localKeyPair;
     
     private MossClient(Builder builder) {
         this.apiKey = builder.apiKey != null ? builder.apiKey : System.getenv("MOSS_API_KEY");
@@ -85,6 +85,11 @@ public class MossClient {
     
     private SignResult signLocal(SignRequest request) throws MossException {
         try {
+            // Lazily generate ML-DSA-44 key pair on first local sign
+            if (localKeyPair == null) {
+                localKeyPair = MossSigner.generateKeyPair();
+            }
+            
             String payloadJson = objectMapper.writeValueAsString(request.getPayload());
             String payloadHash = computeHash(payloadJson);
             
@@ -96,6 +101,11 @@ public class MossClient {
                 subject = "moss:local:default";
             }
             
+            // Sign the canonical payload with real ML-DSA-44
+            byte[] payloadBytes = payloadJson.getBytes(StandardCharsets.UTF_8);
+            byte[] signature = MossSigner.sign(payloadBytes, localKeyPair);
+            String signatureB64 = Base64.getUrlEncoder().withoutPadding().encodeToString(signature);
+            
             Envelope envelope = new Envelope();
             envelope.setSpec(SPEC);
             envelope.setVersion(VERSION);
@@ -105,7 +115,7 @@ public class MossClient {
             envelope.setSeq(seq);
             envelope.setIssuedAt(now);
             envelope.setPayloadHash(payloadHash);
-            envelope.setSignature("");
+            envelope.setSignature(signatureB64);
             
             return SignResult.builder()
                     .envelope(envelope)
@@ -188,7 +198,7 @@ public class MossClient {
     }
     
     /**
-     * Verifies an envelope against a payload.
+     * Verifies an envelope against a payload using real ML-DSA-44.
      * 
      * @param payload the original payload
      * @param envelope the envelope to verify
@@ -218,6 +228,30 @@ public class MossClient {
                         .valid(false)
                         .error("Payload hash mismatch")
                         .build();
+            }
+            
+            // Real ML-DSA-44 signature verification
+            String sigB64 = envelope.getSignature();
+            if (sigB64 == null || sigB64.isEmpty()) {
+                return VerifyResult.builder()
+                        .valid(false)
+                        .error("Empty signature")
+                        .build();
+            }
+            
+            // If we have a local key pair and the envelope was locally signed,
+            // verify against the local public key
+            if (localKeyPair != null) {
+                byte[] signature = Base64.getUrlDecoder().decode(sigB64);
+                byte[] payloadBytes = payloadJson.getBytes(StandardCharsets.UTF_8);
+                boolean mlDsaValid = MossSigner.verify(payloadBytes, localKeyPair.getPublicKey(), signature);
+                
+                if (!mlDsaValid) {
+                    return VerifyResult.builder()
+                            .valid(false)
+                            .error("ML-DSA-44 signature verification failed")
+                            .build();
+                }
             }
             
             return VerifyResult.builder()
@@ -458,7 +492,7 @@ public class MossClient {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(data.getBytes(StandardCharsets.UTF_8));
             return Base64.getUrlEncoder().withoutPadding().encodeToString(hash);
-        } catch (NoSuchAlgorithmException e) {
+        } catch (java.security.NoSuchAlgorithmException e) {
             throw new RuntimeException("SHA-256 not available", e);
         }
     }
